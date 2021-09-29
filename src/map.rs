@@ -9,7 +9,7 @@ use core::mem::{self, ManuallyDrop};
 use core::ops::{Index, IndexMut, RangeBounds};
 use core::ptr;
 
-use node::Root;
+use self::node::Root;
 
 /// A map based on a B+ tree.
 ///
@@ -351,7 +351,7 @@ impl<K, V> BpTreeMap<K, V> {
     ///
     /// let mut map = BpTreeMap::from([(1, "One"), (2, "Two")]);
     /// assert_eq!(map.remove_entry(&2), Some((2, "Two")));
-    /// assert_eq!(map.remove_entry(&10), None);
+    /// assert_eq!(map.remove_entry(&2), None);
     /// assert_eq!(map.len(), 1);
     /// ```
     pub fn remove_entry<Q: ?Sized>(&mut self, key: &Q) -> Option<(K, V)>
@@ -381,7 +381,7 @@ impl<K, V> BpTreeMap<K, V> {
     ///
     /// let mut map = BpTreeMap::from([(1, "One"), (2, "Two")]);
     /// assert_eq!(map.remove(&2), Some("Two"));
-    /// assert_eq!(map.remove(&10), None);
+    /// assert_eq!(map.remove(&2), None);
     /// assert_eq!(map.len(), 1);
     /// ```
     pub fn remove<Q: ?Sized>(&mut self, key: &Q) -> Option<V>
@@ -618,7 +618,6 @@ impl<K, V> BpTreeMap<K, V> {
         }
     }
 
-
     /// Returns an iterator over the keys of the map, in sorted order.
     ///
     /// # Examples
@@ -723,7 +722,6 @@ impl<K, V> BpTreeMap<K, V> {
         }
     }
 
-
     /// Returns a mutable iterator over the elements of the map, sorted by key.
     ///
     /// # Examples
@@ -789,11 +787,19 @@ impl<K, V> IntoIterator for BpTreeMap<K, V> {
     fn into_iter(self) -> Self::IntoIter {
         let mut me = ManuallyDrop::new(self);
         if let Some(root) = me.root.take() {
-            let first = unsafe { ptr::read(&root) }.first_entry();
-            let last = root.last_entry(false);
-            IntoIter {
-                imp: search::IterImpl::new(first, last),
-                rem: me.len,
+            if root.is_empty() {
+                Root::drop(root);
+                IntoIter {
+                    imp: search::IterImpl::none(),
+                    rem: 0,
+                }
+            } else {
+                let first = unsafe { ptr::read(&root) }.first_entry();
+                let last = root.last_entry(false);
+                IntoIter {
+                    imp: search::IterImpl::new(first, last),
+                    rem: me.len,
+                }
             }
         } else {
             IntoIter {
@@ -840,7 +846,7 @@ impl<'a, K: Debug, V: Debug> Debug for Entry<'a, K, V> {
     }
 }
 
-impl<'a, K, V> Entry<'a, K, V> {
+impl<'a, K: Ord, V> Entry<'a, K, V> {
     unsafe fn force_insert(
         inner: node::Entry<node::NodeMut<'a, K, V, node::marker::Leaf>>,
         self_ptr: *mut BpTreeMap<K, V>,
@@ -864,10 +870,34 @@ impl<'a, K, V> Entry<'a, K, V> {
         }
     }
 
+    /// Ensures a value is present in the entry by inserting a default value if not, and returns
+    /// a mutable reference to the value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::new();
+    /// map.entry(1).or_insert("One");
+    /// assert_eq!(map[&1], "One");
+    /// ```
     pub fn or_insert(self, default: V) -> &'a mut V {
         self.or_insert_with(|| default)
     }
 
+    /// Ensures a value is present in the entry by inserting the result of the default function
+    /// if not, and returns a mutable reference to the value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::new();
+    /// map.entry(1).or_insert_with(|| "One".to_string());
+    /// assert_eq!(&*map[&1], "One");
+    /// ```
     pub fn or_insert_with<F>(self, default: F) -> &'a mut V
     where
         F: FnOnce() -> V,
@@ -875,6 +905,21 @@ impl<'a, K, V> Entry<'a, K, V> {
         self.or_insert_with_key(|_| default())
     }
 
+    /// Ensures a value is present in the entry by inserting the result of the default function
+    /// if not, and returns a mutable reference to the value.
+    ///
+    /// The function is parameterized by a reference to the key of the entry and thus allows
+    /// key-derived value generation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::new();
+    /// map.entry("Hello").or_insert_with_key(|key| key.chars().count());
+    /// assert_eq!(map["Hello"], 5);
+    /// ```
     pub fn or_insert_with_key<F>(self, default: F) -> &'a mut V
     where
         F: FnOnce(&K) -> V,
@@ -888,6 +933,17 @@ impl<'a, K, V> Entry<'a, K, V> {
         }
     }
 
+    /// Returns the key of the entry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::<&str, ()>::new();
+    /// let entry = map.entry("Hello");
+    /// assert_eq!(entry.key(), &"Hello");
+    /// ```
     pub fn key(&self) -> &K {
         match &self.vacant_key {
             None => self.inner.reborrow().into_kv().0,
@@ -895,6 +951,23 @@ impl<'a, K, V> Entry<'a, K, V> {
         }
     }
 
+    /// Returns a reference to the value of the entry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::from([(1, "One")]);
+    ///
+    /// let one = map.entry(1);
+    /// assert_eq!(one.get(), Some(&"One"));
+    /// drop(one);
+    ///
+    /// let another = map.entry(5);
+    /// assert_eq!(another.get(), None);
+    /// assert_eq!(another.or_insert("Five"), &mut "Five");
+    /// ```
     pub fn get(&self) -> Option<&V> {
         match self.vacant_key {
             None => Some(self.inner.reborrow().into_kv().1),
@@ -902,6 +975,23 @@ impl<'a, K, V> Entry<'a, K, V> {
         }
     }
 
+    /// Returns a mutable reference to the value of the entry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::from([(1, "One")]);
+    ///
+    /// let mut one = map.entry(1);
+    /// assert_eq!(one.get_mut(), Some(&mut "One"));
+    /// drop(one);
+    ///
+    /// let mut another = map.entry(5);
+    /// assert_eq!(another.get_mut(), None);
+    /// assert_eq!(another.or_insert("Five"), &mut "Five");
+    /// ```
     pub fn get_mut(&mut self) -> Option<&mut V> {
         match self.vacant_key {
             None => Some(self.inner.val_mut()),
@@ -909,6 +999,22 @@ impl<'a, K, V> Entry<'a, K, V> {
         }
     }
 
+    /// Provides in-place mutable access to an occupied entry before any potential inserts into
+    /// the map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::new();
+    ///
+    /// map.entry("Value").and_modify(|v| *v += 1).or_insert(0);
+    /// assert_eq!(map["Value"], 0);
+    ///
+    /// map.entry("Value").and_modify(|v| *v += 1).or_insert(0);
+    /// assert_eq!(map["Value"], 1);
+    /// ```
     pub fn and_modify<F>(mut self, modify: F) -> Self
     where
         F: FnOnce(&mut V),
@@ -927,7 +1033,37 @@ impl<'a, K, V> Entry<'a, K, V> {
             },
         }
     }
+}
 
+impl<'a, K, V> Entry<'a, K, V> {
+    /// Removes the entry from the map if present, returning the value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::from([(1, "One"), (2, "Two")]);
+    /// assert_eq!(map.entry(2).remove(), Some("Two"));
+    /// assert_eq!(map.entry(2).remove(), None);
+    /// assert_eq!(map.len(), 1);
+    /// ```
+    pub fn remove(self) -> Option<V> {
+        self.remove_entry().map(|(_, val)| val)
+    }
+
+    /// Removes the entry from the map if present, returning the key-value pair.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::from([(1, "One"), (2, "Two")]);
+    /// assert_eq!(map.entry(2).remove_entry(), Some((2, "Two")));
+    /// assert_eq!(map.entry(2).remove_entry(), None);
+    /// assert_eq!(map.len(), 1);
+    /// ```
     pub fn remove_entry(self) -> Option<(K, V)> {
         match self.vacant_key {
             Some(_) => None,
@@ -937,6 +1073,18 @@ impl<'a, K, V> Entry<'a, K, V> {
 }
 
 impl<'a, K: Ord, V: Default> Entry<'a, K, V> {
+    /// Ensures a value is present in the entry by inserting the result of the default value
+    /// if not, and returns a mutable reference to the value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::<&str, u32>::new();
+    /// map.entry("Zero").or_default();
+    /// assert_eq!(map["Zero"], 0);
+    /// ```
     pub fn or_default(self) -> &'a mut V {
         self.or_insert_with(Default::default)
     }
