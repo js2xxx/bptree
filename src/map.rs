@@ -2,14 +2,40 @@ mod node;
 mod search;
 
 use core::borrow::Borrow;
+use core::cmp::Ordering;
 use core::fmt::Debug;
 use core::iter::FusedIterator;
 use core::mem::{self, ManuallyDrop};
-use core::ops::RangeBounds;
+use core::ops::{Index, IndexMut, RangeBounds};
 use core::ptr;
 
 use node::Root;
 
+/// # Examples
+///
+/// ```rust
+/// use bptree::BpTreeMap;
+///
+/// let mut students = BpTreeMap::new();
+///
+/// // Input some students' information.
+/// students.insert("S01", "John");
+/// students.insert("S02", "Jack");
+/// students.insert("S03", "Reo");
+///
+/// // Find a student's information by direct indexing.
+/// let jack = students["S02"];
+/// assert_eq!(jack, "Jack");
+///
+/// // A student has graduated from the college.
+/// let john = students.remove("S01").unwrap();
+/// assert_eq!(john, "John");
+///
+/// // Iterates the information so as to deal with senior's inspection.
+/// for (id, name) in students.iter() {
+///     println!("{}: {}", id, name);
+/// }
+/// ```
 pub struct BpTreeMap<K, V> {
     root: Option<Root<K, V>>,
     len: usize,
@@ -167,10 +193,6 @@ impl<K, V> BpTreeMap<K, V> {
     where
         Q: Ord,
         K: Borrow<Q>,
-
-        Q: core::fmt::Debug,
-        K: core::fmt::Debug,
-        V: core::fmt::Debug,
     {
         let self_ptr: *mut _ = self;
 
@@ -185,16 +207,26 @@ impl<K, V> BpTreeMap<K, V> {
     where
         Q: Ord,
         K: Borrow<Q>,
-
-        Q: core::fmt::Debug,
-        K: core::fmt::Debug,
-        V: core::fmt::Debug,
     {
         self.remove_entry(key).map(|(_, val)| val)
     }
 
     pub fn clear(&mut self) {
         *self = Self::new();
+    }
+}
+
+impl<Q: ?Sized + Ord, K: Borrow<Q>, V> Index<&Q> for BpTreeMap<K, V> {
+    type Output = V;
+
+    fn index(&self, index: &Q) -> &Self::Output {
+        self.get(index).unwrap()
+    }
+}
+
+impl<Q: ?Sized + Ord, K: Borrow<Q>, V> IndexMut<&Q> for BpTreeMap<K, V> {
+    fn index_mut(&mut self, index: &Q) -> &mut Self::Output {
+        self.get_mut(index).unwrap()
     }
 }
 
@@ -993,6 +1025,39 @@ impl<'a, K: 'a, V: 'a> DoubleEndedIterator for RangeMut<'a, K, V> {
 }
 
 impl<K, V> FusedIterator for RangeMut<'_, K, V> {}
+
+impl<K: Ord, V> FromIterator<(K, V)> for BpTreeMap<K, V> {
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
+        let mut ret = Self::new();
+        for (k, v) in iter {
+            ret.insert(k, v);
+        }
+        ret
+    }
+}
+
+impl<K: PartialEq, V: PartialEq> PartialEq for BpTreeMap<K, V> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.len == other.len && self.iter().zip(other.iter()).all(|(x, y)| x == y)
+    }
+}
+impl<K: Eq, V: Eq> Eq for BpTreeMap<K, V> {}
+
+impl<K: PartialOrd, V: PartialOrd> PartialOrd for BpTreeMap<K, V> {
+    #[inline]
+    fn partial_cmp(&self, other: &BpTreeMap<K, V>) -> Option<Ordering> {
+        self.iter().partial_cmp(other.iter())
+    }
+}
+impl<K: Ord, V: Ord> Ord for BpTreeMap<K, V> {
+    #[inline]
+    fn cmp(&self, other: &BpTreeMap<K, V>) -> Ordering {
+        self.iter().cmp(other.iter())
+    }
+}
+
+
 
 #[cfg(test)]
 pub mod tests {

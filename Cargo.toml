@@ -6,7 +6,7 @@ authors = ["Xu Qihang <akucxy@163.com>"]
 description = "Containers implemented by B+ trees, similar to Rust's `BTreeMap` and `BTreeSet`."
 
 [lib]
-crate-type = ["staticlib"]
+path = "src/lib.rs"
 
 [dev-dependencies]
 rand = "0.8"
