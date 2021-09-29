@@ -206,11 +206,24 @@ impl<B: marker::BorrowType, K, V> IterImpl<Node<B, K, V, marker::Leaf>> {
         Q: Ord,
         K: Borrow<Q>,
     {
-        let start = match unsafe { ptr::read(&root_node) }.bound(range.start_bound(), true) {
+        let start_bound = range.start_bound();
+        let end_bound = range.end_bound();
+        match (start_bound, end_bound) {
+            (Bound::Excluded(x), Bound::Excluded(y)) if x == y => {
+                panic!("range start and end are equal and excluded in BpTreeMap")
+            }
+            (Bound::Excluded(x) | Bound::Included(x), Bound::Excluded(y) | Bound::Included(y))
+                if x > y =>
+            {
+                panic!("range start is greater than range end in BpTreeMap")
+            }
+            _ => {}
+        };
+        let start = match unsafe { ptr::read(&root_node) }.bound(start_bound, true) {
             Some(start) => start,
             None => return Self::none(),
         };
-        let end = match root_node.bound(range.end_bound(), false) {
+        let end = match root_node.bound(end_bound, false) {
             Some(end) => end,
             None => return Self::none(),
         };

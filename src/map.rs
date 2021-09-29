@@ -11,9 +11,11 @@ use core::ptr;
 
 use node::Root;
 
+/// A map based on a B+ tree.
+///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use bptree::BpTreeMap;
 ///
 /// let mut students = BpTreeMap::new();
@@ -48,15 +50,58 @@ impl<K, V> Default for BpTreeMap<K, V> {
 }
 
 impl<K, V> BpTreeMap<K, V> {
+    /// Creates an empty `BpTreeMap`.
+    ///
+    /// This function doesn't allocate anything from the heap, so it can be used in constant
+    /// initalizations.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// // Doesn't allocate anything.
+    /// let mut map = BpTreeMap::new();
+    ///
+    /// // Inserts key-value pairs into the empty map.
+    /// // Now allocates.
+    /// map.insert(1, "Sample");
+    /// ```
     pub const fn new() -> Self {
         BpTreeMap { root: None, len: 0 }
     }
 
-    pub fn len(&self) -> usize {
+    /// Returns the number of elements in the map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::from([(1, "One"), (2, "Two")]);
+    /// assert_eq!(map.len(), 2);
+    ///
+    /// map.remove(&2);
+    /// assert_eq!(map.len(), 1);
+    /// ```
+    pub const fn len(&self) -> usize {
         self.len
     }
 
-    pub fn is_empty(&self) -> bool {
+    /// Returns `true` if the map contains no elements.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::new();
+    /// assert!(map.is_empty());
+    ///
+    /// map.insert(1, "One");
+    /// assert!(!map.is_empty());
+    /// ```
+    pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
 
@@ -95,6 +140,20 @@ where
 }
 
 impl<K, V> BpTreeMap<K, V> {
+    /// Returns the entry of the map at the given key for in-place manipulation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut count = BpTreeMap::new();
+    /// let sample = "Hello world!";
+    /// for c in sample.bytes() {
+    ///     *count.entry(c).or_insert(0) += 1;
+    /// }
+    /// assert_eq!(count[&b'l'], 3);
+    /// ```
     pub fn entry(&mut self, key: K) -> Entry<'_, K, V>
     where
         K: Ord,
@@ -115,6 +174,20 @@ impl<K, V> BpTreeMap<K, V> {
         }
     }
 
+    /// Returns the reference to the value at the given key.
+    ///
+    /// The key can be any borrowing form of the map's key type, but the ordering on the borrowed
+    /// form *must* match the ordering on the key type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let map = BpTreeMap::from([(1, "One"), (2, "Two")]);
+    /// assert_eq!(map.get(&1), Some(&"One"));
+    /// assert_eq!(map.get(&10), None);
+    /// ```
     pub fn get<Q: ?Sized>(&self, key: &Q) -> Option<&V>
     where
         Q: Ord,
@@ -123,6 +196,20 @@ impl<K, V> BpTreeMap<K, V> {
         self.get_key_value(key).map(|(_, value)| value)
     }
 
+    /// Returns the reference to the key-value pair at the given key.
+    ///
+    /// The key can be any borrowing form of the map's key type, but the ordering on the borrowed
+    /// form *must* match the ordering on the key type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let map = BpTreeMap::from([(1, "One"), (2, "Two")]);
+    /// assert_eq!(map.get_key_value(&1), Some((&1, &"One")));
+    /// assert_eq!(map.get_key_value(&10), None);
+    /// ```
     pub fn get_key_value<Q: ?Sized>(&self, key: &Q) -> Option<(&K, &V)>
     where
         Q: Ord,
@@ -135,6 +222,20 @@ impl<K, V> BpTreeMap<K, V> {
         }
     }
 
+    /// Returns `true` if the map contains the specified key.
+    ///
+    /// The key can be any borrowing form of the map's key type, but the ordering on the borrowed
+    /// form *must* match the ordering on the key type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let map = BpTreeMap::from([(1, "One"), (2, "Two")]);
+    /// assert_eq!(map.contains_key(&1), true);
+    /// assert_eq!(map.contains_key(&10), false);
+    /// ```
     pub fn contains_key<Q: ?Sized>(&self, key: &Q) -> bool
     where
         Q: Ord,
@@ -143,6 +244,20 @@ impl<K, V> BpTreeMap<K, V> {
         self.get(key).is_some()
     }
 
+    /// Returns the mutable reference to the value at the given key.
+    ///
+    /// The key can be any borrowing form of the map's key type, but the ordering on the borrowed
+    /// form *must* match the ordering on the key type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::from([(1, "One"), (2, "Two")]);
+    /// assert_eq!(map.get_mut(&1), Some(&mut "One"));
+    /// assert_eq!(map.get_mut(&10), None);
+    /// ```
     pub fn get_mut<Q: ?Sized>(&mut self, key: &Q) -> Option<&mut V>
     where
         Q: Ord,
@@ -155,12 +270,32 @@ impl<K, V> BpTreeMap<K, V> {
         }
     }
 
+    /// Inserts a key-value pair into the map.
+    ///
+    /// If the map didn't have this key present, `None` is returned.
+    ///
+    /// If it did, the key is not updated, and the old value is replaced with the new one and
+    /// returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::new();
+    /// assert_eq!(map.insert(1, "One"), None);
+    /// assert_eq!(map.len(), 1);
+    ///
+    /// assert_eq!(map.insert(1, "Another"), Some("One"));
+    /// assert_eq!(map.get(&1), Some(&"Another"));
+    /// assert_eq!(map.len(), 1);
+    /// ```
     pub fn insert(&mut self, key: K, value: V) -> Option<V>
     where
         K: Ord,
     {
         let mut ent = self.entry(key);
-        if let Some(val_mut) = ent.value_mut() {
+        if let Some(val_mut) = ent.get_mut() {
             let mut ret = value;
             core::mem::swap(val_mut, &mut ret);
             Some(ret)
@@ -170,6 +305,21 @@ impl<K, V> BpTreeMap<K, V> {
         }
     }
 
+    /// Moves all elements from `other` to `Self`, leaving `other` empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut a = BpTreeMap::from([(1, "One"), (2, "Two")]);
+    /// let mut b = BpTreeMap::from([(2, "AnotherTwo"), (3, "Three"), (4, "Four")]);
+    ///
+    /// a.append(&mut b);
+    /// assert_eq!(a.len(), 4);
+    /// assert_eq!(a[&2], "AnotherTwo");
+    /// assert!(b.is_empty());
+    /// ```
     pub fn append(&mut self, other: &mut Self)
     where
         K: Ord,
@@ -189,6 +339,21 @@ impl<K, V> BpTreeMap<K, V> {
         }
     }
 
+    /// Removes and returns the key-value pair from the map according to the given key.
+    ///
+    /// The key can be any borrowing form of the map's key type, but the ordering on the borrowed
+    /// form *must* match the ordering on the key type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::from([(1, "One"), (2, "Two")]);
+    /// assert_eq!(map.remove_entry(&2), Some((2, "Two")));
+    /// assert_eq!(map.remove_entry(&10), None);
+    /// assert_eq!(map.len(), 1);
+    /// ```
     pub fn remove_entry<Q: ?Sized>(&mut self, key: &Q) -> Option<(K, V)>
     where
         Q: Ord,
@@ -203,6 +368,22 @@ impl<K, V> BpTreeMap<K, V> {
         }
     }
 
+    /// Removes the key-value pair from the map according to the given key. Only the value is
+    /// returned.
+    ///
+    /// The key can be any borrowing form of the map's key type, but the ordering on the borrowed
+    /// form *must* match the ordering on the key type.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::from([(1, "One"), (2, "Two")]);
+    /// assert_eq!(map.remove(&2), Some("Two"));
+    /// assert_eq!(map.remove(&10), None);
+    /// assert_eq!(map.len(), 1);
+    /// ```
     pub fn remove<Q: ?Sized>(&mut self, key: &Q) -> Option<V>
     where
         Q: Ord,
@@ -211,6 +392,19 @@ impl<K, V> BpTreeMap<K, V> {
         self.remove_entry(key).map(|(_, val)| val)
     }
 
+    /// Clears the map, dropping all of its elements.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::from([(1, "One"), (2, "Two")]);
+    /// assert!(!map.is_empty());
+    ///
+    /// map.clear();
+    /// assert!(map.is_empty());
+    /// ```
     pub fn clear(&mut self) {
         *self = Self::new();
     }
@@ -231,15 +425,44 @@ impl<Q: ?Sized + Ord, K: Borrow<Q>, V> IndexMut<&Q> for BpTreeMap<K, V> {
 }
 
 impl<K, V> BpTreeMap<K, V> {
-    pub fn first(&self) -> Option<&V> {
-        self.first_key_value().map(|(_, val)| val)
-    }
-
+    /// Returns the first key-value pair in the map.
+    ///
+    /// The first key is the minimum key in the map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::new();
+    /// assert_eq!(map.first_key_value(), None);
+    ///
+    /// map.insert(1, "One");
+    /// map.insert(2, "Two");
+    /// assert_eq!(map.first_key_value(), Some((&1, &"One")));
+    /// ```
     pub fn first_key_value(&self) -> Option<(&K, &V)> {
         let root_node = self.root.as_ref()?.reborrow();
         Some(root_node.first_entry().into_kv())
     }
 
+    /// Returns the first entry in the map for in-place manipulation..
+    ///
+    /// The key of the entry is the minimum key in the map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::new();
+    /// assert!(map.first_entry().is_none());
+    ///
+    /// map.insert(1, "One");
+    /// map.insert(2, "Two");
+    /// map.first_entry().unwrap().and_modify(|val| *val = "Another");
+    ///
+    /// assert_eq!(map.first_key_value(), Some((&1, &"Another")));
     pub fn first_entry(&mut self) -> Option<Entry<'_, K, V>> {
         let self_ptr: *mut _ = self;
         let root_node = self.root.as_mut()?.borrow_mut();
@@ -251,22 +474,60 @@ impl<K, V> BpTreeMap<K, V> {
         })
     }
 
+    /// Removes and returns the first key-value pair from the map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::from([(1, "One"), (2, "Two")]);
+    /// assert_eq!(map.pop_first(), Some((1, "One")));
+    /// assert_eq!(map.pop_first(), Some((2, "Two")));
+    /// assert_eq!(map.pop_first(), None);
+    /// ```
     pub fn pop_first(&mut self) -> Option<(K, V)> {
-        let self_ptr: *mut _ = self;
-        let root_node = self.root.as_mut()?.borrow_mut();
-        let entry = root_node.first_entry();
-        node::remove_with_root(entry, self_ptr)
+        self.first_entry().and_then(|ent| ent.remove_entry())
     }
 
-    pub fn last(&self) -> Option<&V> {
-        self.last_key_value().map(|(_, val)| val)
-    }
-
+    /// Returns the last key-value pair in the map.
+    ///
+    /// The last key is the maximum key in the map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::new();
+    /// assert_eq!(map.last_key_value(), None);
+    ///
+    /// map.insert(1, "One");
+    /// map.insert(2, "Two");
+    /// assert_eq!(map.last_key_value(), Some((&2, &"Two")));
+    /// ```
     pub fn last_key_value(&self) -> Option<(&K, &V)> {
         let root_node = self.root.as_ref()?.reborrow();
         Some(root_node.last_entry(false).into_kv())
     }
 
+    /// Returns the last entry in the map for in-place manipulation..
+    ///
+    /// The key of the entry is the maximum key in the map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::new();
+    /// assert!(map.last_entry().is_none());
+    ///
+    /// map.insert(1, "One");
+    /// map.insert(2, "Two");
+    /// map.last_entry().unwrap().and_modify(|val| *val = "Another");
+    ///
+    /// assert_eq!(map.last_key_value(), Some((&2, &"Another")));
     pub fn last_entry(&mut self) -> Option<Entry<'_, K, V>> {
         let self_ptr: *mut _ = self;
         let root_node = self.root.as_mut()?.borrow_mut();
@@ -278,25 +539,69 @@ impl<K, V> BpTreeMap<K, V> {
         })
     }
 
+    /// Removes and returns the last key-value pair from the map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::from([(1, "One"), (2, "Two")]);
+    /// assert_eq!(map.pop_last(), Some((2, "Two")));
+    /// assert_eq!(map.pop_last(), Some((1, "One")));
+    /// assert_eq!(map.pop_last(), None);
+    /// ```
     pub fn pop_last(&mut self) -> Option<(K, V)> {
-        let self_ptr: *mut _ = self;
-        let root_node = self.root.as_mut()?.borrow_mut();
-        let entry = root_node.last_entry(false);
-        node::remove_with_root(entry, self_ptr)
+        self.last_entry().and_then(|ent| ent.remove_entry())
     }
 
+    /// Converts the map into an iterator over the keys of the map, while the values are dropped.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let map = BpTreeMap::from([(1, "One"), (2, "Two")]);
+    /// let vec = map.into_keys().collect::<Vec<_>>();
+    /// assert_eq!(vec, vec![1, 2]);
     pub fn into_keys(self) -> IntoKeys<K, V> {
         IntoKeys {
             iter: self.into_iter(),
         }
     }
 
+    /// Converts the map into an iterator over the values of the map, while the keys are dropped.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let map = BpTreeMap::from([(1, "One"), (2, "Two")]);
+    /// let vec = map.into_values().collect::<Vec<_>>();
+    /// assert_eq!(vec, vec!["One", "Two"]);
     pub fn into_values(self) -> IntoValues<K, V> {
         IntoValues {
             iter: self.into_iter(),
         }
     }
 
+    /// Returns an iterator over the elements of the map, sorted by key.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let map = BpTreeMap::from([(3, "Three"), (1, "One"), (4, "Four"), (2, "Two")]);
+    /// for (key, value) in map.iter() {
+    ///     println!("{}: {}", key, value);
+    /// }
+    ///
+    /// let first_kv = map.iter().next().unwrap();
+    /// assert_eq!(first_kv, (&1, &"One"));
+    /// ```
     pub fn iter(&self) -> Iter<'_, K, V> {
         if let Some(root) = self.root.as_ref() {
             let first_entry = root.reborrow().first_entry();
@@ -313,14 +618,61 @@ impl<K, V> BpTreeMap<K, V> {
         }
     }
 
+
+    /// Returns an iterator over the keys of the map, in sorted order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let map = BpTreeMap::from([(3, "Three"), (1, "One"), (4, "Four"), (2, "Two")]);
+    /// for key in map.keys() {
+    ///     println!("{}", key);
+    /// }
+    ///
+    /// let first_key = map.keys().next().unwrap();
+    /// assert_eq!(first_key, &1);
+    /// ```
     pub fn keys(&self) -> Keys<'_, K, V> {
         Keys { iter: self.iter() }
     }
 
+    /// Returns an iterator over the values of the map, sorted by key.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let map = BpTreeMap::from([(3, "Three"), (1, "One"), (4, "Four"), (2, "Two")]);
+    /// for value in map.values() {
+    ///     println!("{}", value);
+    /// }
+    ///
+    /// let first_value = map.values().next().unwrap();
+    /// assert_eq!(first_value, &"One");
+    /// ```
     pub fn values(&self) -> Values<'_, K, V> {
         Values { iter: self.iter() }
     }
 
+    /// Returns an iterator over a sub-range of entries in the map.
+    ///
+    /// # Panics
+    ///
+    /// Panics if range `start > end`.
+    /// Panics if range `start == end` and both bounds are `Excluded`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let map = BpTreeMap::from([(2, "Two"), (6, "Six"), (11, "Eleven")]);
+    /// assert_eq!(map.range(2..).next(), Some((&2, &"Two")));
+    /// assert_eq!(map.range(..6).next(), Some((&2, &"Two")));
+    /// ```
     pub fn range<Q: ?Sized, R>(&self, range: R) -> Range<'_, K, V>
     where
         R: RangeBounds<Q>,
@@ -337,6 +689,24 @@ impl<K, V> BpTreeMap<K, V> {
         }
     }
 
+    /// Returns a mutable iterator over the elements of the map, sorted by key.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::from([(3, "Three"), (1, "One"), (4, "Four"), (2, "Two")]);
+    ///
+    /// let first_kv = map.iter_mut().next().unwrap();
+    /// assert_eq!(first_kv, (&1, &mut "One"));
+    /// *first_kv.1 = "Another";
+    /// drop(first_kv);
+    ///
+    /// for (key, value) in map.iter_mut() {
+    ///     println!("{}: {}", key, value);
+    /// }
+    /// ```
     pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
         if let Some(root) = self.root.as_mut() {
             let first_entry = unsafe { ptr::read(&root) }.borrow_mut().first_entry();
@@ -353,12 +723,47 @@ impl<K, V> BpTreeMap<K, V> {
         }
     }
 
+
+    /// Returns a mutable iterator over the elements of the map, sorted by key.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::from([(3, "Three"), (1, "One"), (4, "Four"), (2, "Two")]);
+    ///
+    /// let first_value = map.values_mut().next().unwrap();
+    /// assert_eq!(first_value, &mut "One");
+    /// *first_value = "Another";
+    /// drop(first_value);
+    ///
+    /// for value in map.values_mut() {
+    ///     println!("{}", value);
+    /// }
+    /// ```
     pub fn values_mut(&mut self) -> ValuesMut<'_, K, V> {
         ValuesMut {
             iter: self.iter_mut(),
         }
     }
 
+    /// Returns a mutable iterator over a sub-range of entries in the map.
+    ///
+    /// # Panics
+    ///
+    /// Panics if range `start > end`.
+    /// Panics if range `start == end` and both bounds are `Excluded`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bptree::BpTreeMap;
+    ///
+    /// let mut map = BpTreeMap::from([(2, "Two"), (6, "Six"), (11, "Eleven")]);
+    /// assert_eq!(map.range_mut(2..).next(), Some((&2, &mut "Two")));
+    /// assert_eq!(map.range_mut(..6).next(), Some((&2, &mut "Two")));
+    /// ```
     pub fn range_mut<Q: ?Sized, R>(&mut self, range: R) -> RangeMut<'_, K, V>
     where
         R: RangeBounds<Q>,
@@ -421,7 +826,21 @@ pub struct Entry<'a, K, V> {
     self_ptr: *mut BpTreeMap<K, V>,
 }
 
-impl<'a, K: Ord, V> Entry<'a, K, V> {
+impl<'a, K: Debug, V: Debug> Debug for Entry<'a, K, V> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut d = f.debug_struct("Entry");
+        match self.vacant_key.as_ref() {
+            Some(key) => d.field("vacant", &true).field("key", key),
+            None => {
+                let (k, v) = self.inner.reborrow().into_kv();
+                d.field("vacant", &false).field("key", k).field("value", v)
+            }
+        }
+        .finish()
+    }
+}
+
+impl<'a, K, V> Entry<'a, K, V> {
     unsafe fn force_insert(
         inner: node::Entry<node::NodeMut<'a, K, V, node::marker::Leaf>>,
         self_ptr: *mut BpTreeMap<K, V>,
@@ -476,7 +895,14 @@ impl<'a, K: Ord, V> Entry<'a, K, V> {
         }
     }
 
-    fn value_mut(&mut self) -> Option<&mut V> {
+    pub fn get(&self) -> Option<&V> {
+        match self.vacant_key {
+            None => Some(self.inner.reborrow().into_kv().1),
+            Some(_) => None,
+        }
+    }
+
+    pub fn get_mut(&mut self) -> Option<&mut V> {
         match self.vacant_key {
             None => Some(self.inner.val_mut()),
             Some(_) => None,
@@ -501,6 +927,13 @@ impl<'a, K: Ord, V> Entry<'a, K, V> {
             },
         }
     }
+
+    pub fn remove_entry(self) -> Option<(K, V)> {
+        match self.vacant_key {
+            Some(_) => None,
+            None => node::remove_with_root(self.inner, self.self_ptr),
+        }
+    }
 }
 
 impl<'a, K: Ord, V: Default> Entry<'a, K, V> {
@@ -518,6 +951,13 @@ impl<K: core::fmt::Debug, V: core::fmt::Debug> BpTreeMap<K, V> {
     }
 }
 
+/// An owning iterator over the entries of a `BpTreeMap`.
+///
+/// This `struct` is created by the [`into_iter`] method on [`BpTreeMap`]
+/// (provided by the [`IntoIterator`] trait). See its documentation for more.
+///
+/// [`into_iter`]: IntoIterator::into_iter
+/// [`IntoIterator`]: core::iter::IntoIterator
 pub struct IntoIter<K, V> {
     imp: search::IterImpl<node::NodeOwned<K, V, node::marker::Leaf>>,
     rem: usize,
@@ -534,6 +974,7 @@ where
 }
 
 impl<K, V> IntoIter<K, V> {
+    /// Returns an iterator of references over the remaining items.
     fn iter(&self) -> Iter<'_, K, V> {
         Iter {
             imp: self.imp.reborrow(),
@@ -595,6 +1036,12 @@ impl<K, V> Drop for IntoIter<K, V> {
     }
 }
 
+/// An iterator over the entries of a `BpTreeMap`.
+///
+/// This `struct` is created by the [`iter`] method on [`BpTreeMap`]. See its
+/// documentation for more.
+///
+/// [`iter`]: BpTreeMap::iter
 pub struct Iter<'a, K: 'a, V: 'a> {
     imp: search::IterImpl<node::NodeRef<'a, K, V, node::marker::Leaf>>,
     rem: usize,
@@ -648,6 +1095,12 @@ impl<K, V> ExactSizeIterator for Iter<'_, K, V> {
     }
 }
 
+/// A mutable iterator over the entries of a `BpTreeMap`.
+///
+/// This `struct` is created by the [`iter_mut`] method on [`BpTreeMap`]. See its
+/// documentation for more.
+///
+/// [`iter_mut`]: BpTreeMap::iter_mut
 pub struct IterMut<'a, K: 'a, V: 'a> {
     imp: search::IterImpl<node::NodeMut<'a, K, V, node::marker::Leaf>>,
     rem: usize,
@@ -664,6 +1117,7 @@ where
 }
 
 impl<'a, K: 'a, V: 'a> IterMut<'a, K, V> {
+    /// Returns an iterator of references over the remaining items.
     fn iter(&self) -> Iter<'_, K, V> {
         Iter {
             imp: self.imp.reborrow(),
@@ -702,6 +1156,12 @@ impl<K, V> ExactSizeIterator for IterMut<'_, K, V> {
 
 impl<K, V> FusedIterator for IterMut<'_, K, V> {}
 
+/// An owning iterator over the keys of a `BpTreeMap`.
+///
+/// This `struct` is created by the [`into_keys`] method on [`BpTreeMap`].
+/// See its documentation for more.
+///
+/// [`into_keys`]: BpTreeMap::into_keys
 pub struct IntoKeys<K, V> {
     iter: IntoIter<K, V>,
 }
@@ -717,6 +1177,7 @@ where
 }
 
 impl<K, V> IntoKeys<K, V> {
+    /// Returns an iterator of references over the remaining items.
     fn iter(&self) -> Keys<'_, K, V> {
         Keys {
             iter: self.iter.iter(),
@@ -746,6 +1207,12 @@ impl<K, V> ExactSizeIterator for IntoKeys<K, V> {}
 
 impl<K, V> FusedIterator for IntoKeys<K, V> {}
 
+/// An iterator over the keys of a `BpTreeMap`.
+///
+/// This `struct` is created by the [`keys`] method on [`BpTreeMap`]. See its
+/// documentation for more.
+///
+/// [`keys`]: BpTreeMap::keys
 pub struct Keys<'a, K: 'a, V: 'a> {
     iter: Iter<'a, K, V>,
 }
@@ -791,6 +1258,12 @@ impl<K, V> ExactSizeIterator for Keys<'_, K, V> {}
 
 impl<K, V> FusedIterator for Keys<'_, K, V> {}
 
+/// An owning iterator over the values of a `BpTreeMap`.
+///
+/// This `struct` is created by the [`into_values`] method on [`BpTreeMap`].
+/// See its documentation for more.
+///
+/// [`into_values`]: BpTreeMap::into_values
 pub struct IntoValues<K, V> {
     iter: IntoIter<K, V>,
 }
@@ -806,6 +1279,7 @@ where
 }
 
 impl<K, V> IntoValues<K, V> {
+    /// Returns an iterator of references over the remaining items.
     fn iter(&self) -> Values<'_, K, V> {
         Values {
             iter: self.iter.iter(),
@@ -835,6 +1309,12 @@ impl<K, V> ExactSizeIterator for IntoValues<K, V> {}
 
 impl<K, V> FusedIterator for IntoValues<K, V> {}
 
+/// An iterator over the values of a `BpTreeMap`.
+///
+/// This `struct` is created by the [`values`] method on [`BpTreeMap`]. See its
+/// documentation for more.
+///
+/// [`values`]: BpTreeMap::values
 pub struct Values<'a, K: 'a, V: 'a> {
     iter: Iter<'a, K, V>,
 }
@@ -880,6 +1360,12 @@ impl<K, V> ExactSizeIterator for Values<'_, K, V> {}
 
 impl<K, V> FusedIterator for Values<'_, K, V> {}
 
+/// A mutable iterator over the values of a `BpTreeMap`.
+///
+/// This `struct` is created by the [`values_mut`] method on [`BpTreeMap`]. See its
+/// documentation for more.
+///
+/// [`values_mut`]: BpTreeMap::values_mut
 pub struct ValuesMut<'a, K: 'a, V: 'a> {
     iter: IterMut<'a, K, V>,
 }
@@ -895,6 +1381,7 @@ where
 }
 
 impl<'a, K: 'a, V: 'a> ValuesMut<'a, K, V> {
+    /// Returns an iterator of references over the remaining items.
     fn iter(&self) -> Values<'_, K, V> {
         Values {
             iter: Iter {
@@ -927,6 +1414,12 @@ impl<K, V> ExactSizeIterator for ValuesMut<'_, K, V> {}
 
 impl<K, V> FusedIterator for ValuesMut<'_, K, V> {}
 
+/// An iterator over a sub-range of entries in a `BpTreeMap`.
+///
+/// This `struct` is created by the [`range`] method on [`BpTreeMap`]. See its
+/// documentation for more.
+///
+/// [`range`]: BpTreeMap::range
 pub struct Range<'a, K: 'a, V: 'a> {
     imp: search::IterImpl<node::NodeRef<'a, K, V, node::marker::Leaf>>,
 }
@@ -976,6 +1469,12 @@ impl<'a, K: 'a, V: 'a> DoubleEndedIterator for Range<'a, K, V> {
 
 impl<K, V> FusedIterator for Range<'_, K, V> {}
 
+/// A mutable iterator over a sub-range of entries in a `BpTreeMap`.
+///
+/// This `struct` is created by the [`range_mut`] method on [`BpTreeMap`]. See its
+/// documentation for more.
+///
+/// [`range_mut`]: BpTreeMap::range_mut
 pub struct RangeMut<'a, K: 'a, V: 'a> {
     imp: search::IterImpl<node::NodeMut<'a, K, V, node::marker::Leaf>>,
 }
@@ -991,6 +1490,7 @@ where
 }
 
 impl<'a, K: 'a, V: 'a> RangeMut<'a, K, V> {
+    /// Returns an iterator of references over the remaining items.
     fn iter(&self) -> Range<'_, K, V> {
         Range {
             imp: self.imp.reborrow(),
@@ -1056,8 +1556,6 @@ impl<K: Ord, V: Ord> Ord for BpTreeMap<K, V> {
         self.iter().cmp(other.iter())
     }
 }
-
-
 
 #[cfg(test)]
 pub mod tests {
