@@ -1,0 +1,8 @@
+.history
+.vscode
+target
+build
+/debug
+
+Cargo.lock
+*.log
