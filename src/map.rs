@@ -188,9 +188,9 @@ impl<K, V> BpTreeMap<K, V> {
     /// assert_eq!(map.get(&1), Some(&"One"));
     /// assert_eq!(map.get(&10), None);
     /// ```
-    pub fn get<Q: ?Sized>(&self, key: &Q) -> Option<&V>
+    pub fn get<Q>(&self, key: &Q) -> Option<&V>
     where
-        Q: Ord,
+        Q: Ord + ?Sized,
         K: Borrow<Q>,
     {
         self.get_key_value(key).map(|(_, value)| value)
@@ -210,9 +210,9 @@ impl<K, V> BpTreeMap<K, V> {
     /// assert_eq!(map.get_key_value(&1), Some((&1, &"One")));
     /// assert_eq!(map.get_key_value(&10), None);
     /// ```
-    pub fn get_key_value<Q: ?Sized>(&self, key: &Q) -> Option<(&K, &V)>
+    pub fn get_key_value<Q>(&self, key: &Q) -> Option<(&K, &V)>
     where
-        Q: Ord,
+        Q: Ord + ?Sized,
         K: Borrow<Q>,
     {
         let root_node = self.root.as_ref()?.reborrow();
@@ -236,9 +236,9 @@ impl<K, V> BpTreeMap<K, V> {
     /// assert_eq!(map.contains_key(&1), true);
     /// assert_eq!(map.contains_key(&10), false);
     /// ```
-    pub fn contains_key<Q: ?Sized>(&self, key: &Q) -> bool
+    pub fn contains_key<Q>(&self, key: &Q) -> bool
     where
-        Q: Ord,
+        Q: Ord + ?Sized,
         K: Borrow<Q>,
     {
         self.get(key).is_some()
@@ -258,9 +258,9 @@ impl<K, V> BpTreeMap<K, V> {
     /// assert_eq!(map.get_mut(&1), Some(&mut "One"));
     /// assert_eq!(map.get_mut(&10), None);
     /// ```
-    pub fn get_mut<Q: ?Sized>(&mut self, key: &Q) -> Option<&mut V>
+    pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
     where
-        Q: Ord,
+        Q: Ord + ?Sized,
         K: Borrow<Q>,
     {
         let root_node = self.root.as_mut()?.borrow_mut();
@@ -354,9 +354,9 @@ impl<K, V> BpTreeMap<K, V> {
     /// assert_eq!(map.remove_entry(&2), None);
     /// assert_eq!(map.len(), 1);
     /// ```
-    pub fn remove_entry<Q: ?Sized>(&mut self, key: &Q) -> Option<(K, V)>
+    pub fn remove_entry<Q>(&mut self, key: &Q) -> Option<(K, V)>
     where
-        Q: Ord,
+        Q: Ord + ?Sized,
         K: Borrow<Q>,
     {
         let self_ptr: *mut _ = self;
@@ -384,9 +384,9 @@ impl<K, V> BpTreeMap<K, V> {
     /// assert_eq!(map.remove(&2), None);
     /// assert_eq!(map.len(), 1);
     /// ```
-    pub fn remove<Q: ?Sized>(&mut self, key: &Q) -> Option<V>
+    pub fn remove<Q>(&mut self, key: &Q) -> Option<V>
     where
-        Q: Ord,
+        Q: Ord + ?Sized,
         K: Borrow<Q>,
     {
         self.remove_entry(key).map(|(_, val)| val)
@@ -672,10 +672,10 @@ impl<K, V> BpTreeMap<K, V> {
     /// assert_eq!(map.range(2..).next(), Some((&2, &"Two")));
     /// assert_eq!(map.range(..6).next(), Some((&2, &"Two")));
     /// ```
-    pub fn range<Q: ?Sized, R>(&self, range: R) -> Range<'_, K, V>
+    pub fn range<Q, R>(&self, range: R) -> Range<'_, K, V>
     where
         R: RangeBounds<Q>,
-        Q: Ord,
+        Q: Ord + ?Sized,
         K: Borrow<Q>,
     {
         Range {
@@ -762,10 +762,10 @@ impl<K, V> BpTreeMap<K, V> {
     /// assert_eq!(map.range_mut(2..).next(), Some((&2, &mut "Two")));
     /// assert_eq!(map.range_mut(..6).next(), Some((&2, &mut "Two")));
     /// ```
-    pub fn range_mut<Q: ?Sized, R>(&mut self, range: R) -> RangeMut<'_, K, V>
+    pub fn range_mut<Q, R>(&mut self, range: R) -> RangeMut<'_, K, V>
     where
         R: RangeBounds<Q>,
-        Q: Ord,
+        Q: Ord + ?Sized,
         K: Borrow<Q>,
     {
         RangeMut {
@@ -810,6 +810,26 @@ impl<K, V> IntoIterator for BpTreeMap<K, V> {
     }
 }
 
+impl<'a, K: 'a, V: 'a> IntoIterator for &'a BpTreeMap<K, V> {
+    type Item = (&'a K, &'a V);
+
+    type IntoIter = Iter<'a, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a, K: 'a, V: 'a> IntoIterator for &'a mut BpTreeMap<K, V> {
+    type Item = (&'a K, &'a mut V);
+
+    type IntoIter = IterMut<'a, K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
 impl<K, V> Debug for BpTreeMap<K, V>
 where
     K: Debug,
@@ -826,13 +846,19 @@ impl<K, V> Drop for BpTreeMap<K, V> {
     }
 }
 
+/// A representation of an entry in a map, which may be either vacant or occupied.
+///
+/// This structure is constructed from the [`entry`] method on [`BpTreeMap`].
+/// See its documentation for more.
+///
+/// [`entry`]: BpTreeMap::entry
 pub struct Entry<'a, K, V> {
     vacant_key: Option<K>,
     inner: node::Entry<node::NodeMut<'a, K, V, node::marker::Leaf>>,
     self_ptr: *mut BpTreeMap<K, V>,
 }
 
-impl<'a, K: Debug, V: Debug> Debug for Entry<'a, K, V> {
+impl<K: Debug, V: Debug> Debug for Entry<'_, K, V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut d = f.debug_struct("Entry");
         match self.vacant_key.as_ref() {
@@ -854,19 +880,19 @@ impl<'a, K: Ord, V> Entry<'a, K, V> {
         value: V,
     ) -> &'a mut V {
         match inner.insert_recursive(key, value) {
-            (node::InsertResult::Fit(_), val_ptr) => {
+            (node::InsertResult::Fit(_), val_ptr) => unsafe {
                 {
                     let map = &mut *self_ptr;
                     map.len += 1;
                 }
                 &mut *val_ptr
-            }
-            (node::InsertResult::Split(split), val_ptr) => {
+            },
+            (node::InsertResult::Split(split), val_ptr) => unsafe {
                 let node::SplitResult { right, .. } = split;
 
                 node::insert_root(self_ptr, right);
                 &mut *val_ptr
-            }
+            },
         }
     }
 
@@ -1035,7 +1061,7 @@ impl<'a, K: Ord, V> Entry<'a, K, V> {
     }
 }
 
-impl<'a, K, V> Entry<'a, K, V> {
+impl<K, V> Entry<'_, K, V> {
     /// Removes the entry from the map if present, returning the value.
     ///
     /// # Examples
@@ -1135,10 +1161,7 @@ impl<K, V> Iterator for IntoIter<K, V> {
     type Item = (K, V);
 
     fn next(&mut self) -> Option<Self::Item> {
-        unsafe { self.imp.dying_next() }.map(|ret| {
-            self.rem -= 1;
-            ret
-        })
+        unsafe { self.imp.dying_next() }.inspect(|_| self.rem -= 1)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1148,10 +1171,7 @@ impl<K, V> Iterator for IntoIter<K, V> {
 
 impl<K, V> DoubleEndedIterator for IntoIter<K, V> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        unsafe { self.imp.dying_prev() }.map(|ret| {
-            self.rem -= 1;
-            ret
-        })
+        unsafe { self.imp.dying_prev() }.inspect(|_| self.rem -= 1)
     }
 }
 
@@ -1166,7 +1186,7 @@ impl<K, V> FusedIterator for IntoIter<K, V> {}
 impl<K, V> Drop for IntoIter<K, V> {
     fn drop(&mut self) {
         struct Guard<'a, K, V>(&'a mut IntoIter<K, V>);
-        impl<'a, K, V> Drop for Guard<'a, K, V> {
+        impl<K, V> Drop for Guard<'_, K, V> {
             fn drop(&mut self) {
                 while let Some((k, v)) = unsafe { self.0.imp.dying_next() } {
                     drop(k);
@@ -1361,7 +1381,7 @@ impl<K, V> FusedIterator for IntoKeys<K, V> {}
 /// documentation for more.
 ///
 /// [`keys`]: BpTreeMap::keys
-pub struct Keys<'a, K: 'a, V: 'a> {
+pub struct Keys<'a, K, V> {
     iter: Iter<'a, K, V>,
 }
 
@@ -1463,7 +1483,7 @@ impl<K, V> FusedIterator for IntoValues<K, V> {}
 /// documentation for more.
 ///
 /// [`values`]: BpTreeMap::values
-pub struct Values<'a, K: 'a, V: 'a> {
+pub struct Values<'a, K, V> {
     iter: Iter<'a, K, V>,
 }
 
@@ -1514,7 +1534,7 @@ impl<K, V> FusedIterator for Values<'_, K, V> {}
 /// documentation for more.
 ///
 /// [`values_mut`]: BpTreeMap::values_mut
-pub struct ValuesMut<'a, K: 'a, V: 'a> {
+pub struct ValuesMut<'a, K, V> {
     iter: IterMut<'a, K, V>,
 }
 
@@ -1706,10 +1726,10 @@ impl<K: Ord, V: Ord> Ord for BpTreeMap<K, V> {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
 
     #[test]
-    pub fn construct() {
+    fn construct() {
         use super::*;
         use alloc::collections::BTreeMap;
         // let init = [
@@ -1718,8 +1738,8 @@ pub mod tests {
         // ];
         // let mut init = vec![];
         let mut mirror = BTreeMap::new();
-        let n = 500000;
-        let max = 1000000;
+        let n = 1000000;
+        let max = 10000000;
 
         let mut t = BpTreeMap::new();
 
@@ -1767,11 +1787,9 @@ pub mod tests {
             assert!((rs..re).contains(key));
         }
 
-        // for (u, i0) in mirror {
-        //       // println!("--------------------------{}: {} => {}", z, u, i0);
-        //       // t.print();
-        //       let i = t.remove(&u).unwrap();
-        //       assert!(i == i0 + 20);
-        // }
+        for (u, i0) in mirror {
+            let i = t.remove(&u).unwrap();
+            assert!(i == i0 + 20);
+        }
     }
 }

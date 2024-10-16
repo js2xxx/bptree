@@ -1,4 +1,4 @@
-use core::{intrinsics, mem, ptr};
+use core::{mem, ptr};
 
 /// This replaces the value behind the `v` unique reference by calling the
 /// relevant function.
@@ -15,11 +15,13 @@ pub fn take_mut<T>(v: &mut T, change: impl FnOnce(T) -> T) {
 ///
 /// If a panic occurs in the `change` closure, the entire process will be aborted.
 #[inline]
+#[track_caller]
 pub fn replace<T, R>(v: &mut T, change: impl FnOnce(T) -> (T, R)) -> R {
     struct PanicGuard;
     impl Drop for PanicGuard {
+        #[track_caller]
         fn drop(&mut self) {
-            intrinsics::abort()
+            panic!("panicked when replacing memory locations")
         }
     }
     let guard = PanicGuard;

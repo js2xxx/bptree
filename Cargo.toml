@@ -1,12 +1,9 @@
 [package]
-name = "bptree"
-version = "0.1.0"
-edition = "2021"
 authors = ["Xu Qihang <akucxy@163.com>"]
 description = "Containers implemented by B+ trees, similar to Rust's `BTreeMap` and `BTreeSet`."
-
-[lib]
-path = "src/lib.rs"
+edition = "2021"
+name = "bptree"
+version = "0.1.0"
 
 [dev-dependencies]
 rand = "0.8"

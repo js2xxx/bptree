@@ -7,9 +7,9 @@ use super::super::mem;
 use super::node::*;
 
 impl<B, K, V, N> Node<B, K, V, N> {
-    fn get_index<Q: ?Sized>(&self, key: &Q, start_idx: usize) -> IndexResult
+    fn get_index<Q>(&self, key: &Q, start_idx: usize) -> IndexResult
     where
-        Q: Ord,
+        Q: Ord + ?Sized,
         K: Borrow<Q>,
     {
         let node = self.reborrow();
@@ -29,9 +29,9 @@ impl<B, K, V, N> Node<B, K, V, N> {
 }
 
 impl<B, K, V> Node<B, K, V, marker::Leaf> {
-    pub fn search_node<Q: ?Sized>(self, key: &Q) -> SearchResult<Node<B, K, V, marker::Leaf>>
+    pub fn search_node<Q>(self, key: &Q) -> SearchResult<Node<B, K, V, marker::Leaf>>
     where
-        Q: Ord,
+        Q: Ord + ?Sized,
         K: Borrow<Q>,
     {
         match self.get_index(key, 0) {
@@ -46,9 +46,9 @@ impl<B, K, V> Node<B, K, V, marker::Leaf> {
 }
 
 impl<B: marker::BorrowType, K, V> Node<B, K, V, marker::Internal> {
-    pub fn search_node<Q: ?Sized>(self, key: &Q) -> Node<B, K, V, marker::Generic>
+    pub fn search_node<Q>(self, key: &Q) -> Node<B, K, V, marker::Generic>
     where
-        Q: Ord,
+        Q: Ord + ?Sized,
         K: Borrow<Q>,
     {
         let idx = self.get_index(key, 0).into_idx();
@@ -58,9 +58,9 @@ impl<B: marker::BorrowType, K, V> Node<B, K, V, marker::Internal> {
 }
 
 impl<B: marker::BorrowType, K, V> Node<B, K, V, marker::Generic> {
-    pub fn search_tree<Q: ?Sized>(self, key: &Q) -> SearchResult<Node<B, K, V, marker::Leaf>>
+    pub fn search_tree<Q>(self, key: &Q) -> SearchResult<Node<B, K, V, marker::Leaf>>
     where
-        Q: Ord,
+        Q: Ord + ?Sized,
         K: Borrow<Q>,
     {
         let mut node = self;
@@ -72,13 +72,13 @@ impl<B: marker::BorrowType, K, V> Node<B, K, V, marker::Generic> {
         }
     }
 
-    pub fn bound<Q: ?Sized>(
+    pub fn bound<Q>(
         self,
         bound: Bound<&Q>,
         lower: bool,
     ) -> Option<Entry<Node<B, K, V, marker::Leaf>>>
     where
-        Q: Ord,
+        Q: Ord + ?Sized,
         K: Borrow<Q>,
     {
         let key = match bound {
@@ -200,10 +200,10 @@ impl<Node> IterImpl<Node> {
 }
 
 impl<B: marker::BorrowType, K, V> IterImpl<Node<B, K, V, marker::Leaf>> {
-    pub fn range<Q: ?Sized, R>(root_node: Node<B, K, V, marker::Generic>, range: R) -> Self
+    pub fn range<Q, R>(root_node: Node<B, K, V, marker::Generic>, range: R) -> Self
     where
         R: RangeBounds<Q>,
-        Q: Ord,
+        Q: Ord + ?Sized,
         K: Borrow<Q>,
     {
         let start_bound = range.start_bound();
@@ -265,13 +265,15 @@ impl<B, K, V> IterImpl<Node<B, K, V, marker::Leaf>> {
 impl<K, V> IterImpl<NodeOwned<K, V, marker::Leaf>> {
     pub unsafe fn dying_next(&mut self) -> Option<(K, V)> {
         mem::replace(&mut self.front, |front| {
-            front.map_or((None, None), |front| Entry::drop_next(front, false))
+            front.map_or((None, None), |front| unsafe {
+                Entry::drop_next(front, false)
+            })
         })
     }
 
     pub unsafe fn dying_prev(&mut self) -> Option<(K, V)> {
         mem::replace(&mut self.back, |back| {
-            back.map_or((None, None), |back| Entry::drop_next(back, true))
+            back.map_or((None, None), |back| unsafe { Entry::drop_next(back, true) })
         })
     }
 }

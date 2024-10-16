@@ -5,8 +5,6 @@ use core::mem::{ManuallyDrop, MaybeUninit};
 use core::num::NonZeroUsize;
 use core::ptr::{self, NonNull};
 
-use crate::container_of;
-
 const D: usize = 10;
 const CAPACITY: usize = MAX_KEYS;
 const MAX_KEYS: usize = 2 * D - 1;
@@ -49,12 +47,15 @@ impl<K, V> CommonData<K, V> {
     ///
     /// The caller must ensure that the pointer is valid.
     unsafe fn init(this: *mut Self) {
-        ptr::addr_of_mut!((*this).parent).write(None);
-        ptr::addr_of_mut!((*this).len).write(0);
+        unsafe {
+            ptr::addr_of_mut!((*this).parent).write(None);
+            ptr::addr_of_mut!((*this).len).write(0);
+        }
     }
 }
 
 /// The data of a internal node.
+#[repr(C)]
 pub(crate) struct InternalNode<K, V> {
     common: CommonData<K, V>,
     children: [MaybeUninit<NodePtr<K, V>>; CAPACITY],
@@ -84,12 +85,15 @@ impl<K, V> InternalNode<K, V> {
         let mut internal = Box::<Self>::new_uninit();
         // SAFE: `internal` is a valid pointer and access to `children` are controlled by
         // `common.len`.
-        CommonData::init(ptr::addr_of_mut!((*internal.as_mut_ptr()).common));
-        internal.assume_init()
+        unsafe {
+            CommonData::init(ptr::addr_of_mut!((*internal.as_mut_ptr()).common));
+            internal.assume_init()
+        }
     }
 }
 
 /// The data of a leaf node.
+#[repr(C)]
 pub(crate) struct LeafNode<K, V> {
     common: CommonData<K, V>,
     vals: [MaybeUninit<V>; CAPACITY],
@@ -257,12 +261,12 @@ impl<K, V, N> NodeOwned<K, V, N> {
 
     fn clear_parent(&mut self) {
         let mut self_mut = self.borrow_mut();
-        let mut common = self_mut.common_mut();
+        let common = self_mut.common_mut();
         common.parent = None;
     }
 }
 
-impl<'a, K, V, N> NodeRef<'a, K, V, N> {
+impl<K, V, N> NodeRef<'_, K, V, N> {
     pub fn keys(&self) -> &[K] {
         let len = self.len();
         // SAFE: at all states `len` available keys are guaranteed.
@@ -276,7 +280,7 @@ impl<'a, K, V, N> NodeRef<'a, K, V, N> {
     }
 }
 
-impl<'a, K, V, N> NodeMut<'a, K, V, N> {
+impl<K, V, N> NodeMut<'_, K, V, N> {
     /// Get another mutable reference to the present one.
     ///
     /// # Safety
@@ -313,7 +317,7 @@ impl<'a, K, V, N> NodeMut<'a, K, V, N> {
 
 impl<B, K, V> Node<B, K, V, marker::Leaf> {
     fn as_ptr(&self) -> *mut LeafNode<K, V> {
-        unsafe { container_of!(self.common_ptr.as_ptr(), LeafNode<K, V>, common) }
+        self.common_ptr.as_ptr().cast()
     }
 }
 
@@ -337,13 +341,13 @@ impl<K, V> NodeOwned<K, V, marker::Leaf> {
     }
 }
 
-impl<'a, K, V> NodeRef<'a, K, V, marker::Leaf> {
+impl<K, V> NodeRef<'_, K, V, marker::Leaf> {
     fn as_ref(&self) -> &LeafNode<K, V> {
         unsafe { &*self.as_ptr() }
     }
 }
 
-impl<'a, K, V> NodeMut<'a, K, V, marker::Leaf> {
+impl<K, V> NodeMut<'_, K, V, marker::Leaf> {
     fn as_mut(&mut self) -> &mut LeafNode<K, V> {
         unsafe { &mut *self.as_ptr() }
     }
@@ -366,7 +370,7 @@ impl<'a, K, V> NodeMut<'a, K, V, marker::Leaf> {
 
         self.as_mut().next = other.reborrow().as_ref().next;
         if let Some(mut next) = self.as_mut().next {
-            next.as_mut().prev = Some(NonNull::from(self.as_mut()));
+            unsafe { next.as_mut().prev = Some(NonNull::from(self.as_mut())) };
         }
 
         self
@@ -377,13 +381,15 @@ impl<'a, K, V> NodeMut<'a, K, V, marker::Leaf> {
         assert!(!self.eq(&other));
 
         let other_last = other.into_last(false).unwrap_or_else(|_| unreachable!());
-        let mut self_first = self
-            .reborrow_mut()
-            .into_first()
-            .unwrap_or_else(|_| unreachable!());
+        unsafe {
+            let mut self_first = self
+                .reborrow_mut()
+                .into_first()
+                .unwrap_or_else(|_| unreachable!());
 
-        let (_, (key, val)) = other_last.remove();
-        self_first.insert_fit(key, val);
+            let (_, (key, val)) = other_last.remove();
+            self_first.insert_fit(key, val);
+        }
     }
 
     unsafe fn steal_from_right(&mut self, other: Self) {
@@ -391,13 +397,15 @@ impl<'a, K, V> NodeMut<'a, K, V, marker::Leaf> {
         assert!(!self.eq(&other));
 
         let other_first = other.into_first().unwrap_or_else(|_| unreachable!());
-        let mut self_last = self
-            .reborrow_mut()
-            .into_last(true)
-            .unwrap_or_else(|_| unreachable!());
+        unsafe {
+            let mut self_last = self
+                .reborrow_mut()
+                .into_last(true)
+                .unwrap_or_else(|_| unreachable!());
 
-        let (_, (key, val)) = other_first.remove();
-        self_last.insert_fit(key, val);
+            let (_, (key, val)) = other_first.remove();
+            self_last.insert_fit(key, val);
+        }
     }
 }
 
@@ -406,13 +414,13 @@ impl<'a, K, V> NodeMut<'a, K, V, marker::Leaf> {
 
 impl<B, K, V> Node<B, K, V, marker::Internal> {
     fn as_ptr(&self) -> *mut InternalNode<K, V> {
-        unsafe { container_of!(self.common_ptr.as_ptr(), InternalNode<K, V>, common) }
+        self.common_ptr.as_ptr().cast()
     }
 
     fn from(node: NonNull<InternalNode<K, V>>, height: usize) -> Self {
         debug_assert!(height > 0);
         let common_ptr =
-            unsafe { NonNull::new_unchecked(ptr::addr_of!((*node.as_ref()).common) as *mut _) };
+            unsafe { NonNull::new_unchecked(ptr::addr_of!(node.as_ref().common) as *mut _) };
         Node {
             height,
             common_ptr,
@@ -428,7 +436,10 @@ impl<K, V> NodeOwned<K, V, marker::Internal> {
         internal.children[0].write(child.common_ptr);
         internal.common.len = 1;
         internal.common.keys[0].write(ManuallyDrop::into_inner(child.reborrow().max_key()));
+
+        #[allow(clippy::forget_non_drop)]
         core::mem::forget(child);
+
         let mut ret = Self::from_new(internal, height);
         Entry {
             node: ret.borrow_mut(),
@@ -454,21 +465,23 @@ impl<K, V> NodeOwned<K, V, marker::Internal> {
 
     pub unsafe fn into_first_child(this: Self) -> NodeOwned<K, V, marker::Generic> {
         let height = this.height - 1;
-        let child_ptr = (*this.as_ptr()).children[0].assume_init_read();
-        Self::drop(this);
-        let mut child = NodeOwned::from_raw(child_ptr, height);
+        let mut child = unsafe {
+            let child_ptr = (*this.as_ptr()).children[0].assume_init_read();
+            Self::drop(this);
+            NodeOwned::from_raw(child_ptr, height)
+        };
         child.clear_parent();
         child
     }
 }
 
-impl<'a, K, V> NodeRef<'a, K, V, marker::Internal> {
+impl<K, V> NodeRef<'_, K, V, marker::Internal> {
     fn as_ref(&self) -> &InternalNode<K, V> {
         unsafe { &*self.as_ptr() }
     }
 }
 
-impl<'a, K, V> NodeMut<'a, K, V, marker::Internal> {
+impl<K, V> NodeMut<'_, K, V, marker::Internal> {
     fn children_mut(&mut self) -> &mut [MaybeUninit<NodePtr<K, V>>] {
         let len = self.len();
         unsafe { &mut (*self.as_ptr()).children[..len] }
@@ -479,7 +492,9 @@ impl<'a, K, V> NodeMut<'a, K, V, marker::Internal> {
         I: Iterator<Item = usize>,
     {
         for i in range {
-            let entry = Entry::<NodeMut<'_, K, V, marker::Internal>>::new(self.reborrow_mut(), i);
+            let entry = unsafe {
+                Entry::<NodeMut<'_, K, V, marker::Internal>>::new(self.reborrow_mut(), i)
+            };
             entry.link_child();
         }
     }
@@ -497,7 +512,7 @@ impl<'a, K, V> NodeMut<'a, K, V, marker::Internal> {
             other.children_mut(),
             &mut self.children_mut()[offset..new_len],
         );
-        self.link_children(offset..new_len);
+        unsafe { self.link_children(offset..new_len) };
 
         self
     }
@@ -507,13 +522,15 @@ impl<'a, K, V> NodeMut<'a, K, V, marker::Internal> {
         assert!(!self.eq(&other));
 
         let other_last = other.into_last(false).unwrap_or_else(|_| unreachable!());
-        let mut self_first = self
-            .reborrow_mut()
-            .into_first()
-            .unwrap_or_else(|_| unreachable!());
+        unsafe {
+            let mut self_first = self
+                .reborrow_mut()
+                .into_first()
+                .unwrap_or_else(|_| unreachable!());
 
-        let (_, child) = other_last.remove();
-        self_first.insert_fit(child);
+            let (_, child) = other_last.remove();
+            self_first.insert_fit(child);
+        }
     }
 
     unsafe fn steal_from_right(&mut self, other: Self) {
@@ -521,13 +538,15 @@ impl<'a, K, V> NodeMut<'a, K, V, marker::Internal> {
         assert!(!self.eq(&other));
 
         let other_first = other.into_first().unwrap_or_else(|_| unreachable!());
-        let mut self_last = self
-            .reborrow_mut()
-            .into_last(true)
-            .unwrap_or_else(|_| unreachable!());
+        unsafe {
+            let mut self_last = self
+                .reborrow_mut()
+                .into_last(true)
+                .unwrap_or_else(|_| unreachable!());
 
-        let (_, child) = other_first.remove();
-        self_last.insert_fit(child);
+            let (_, child) = other_first.remove();
+            self_last.insert_fit(child);
+        }
     }
 }
 
@@ -585,18 +604,21 @@ impl<K, V> Root<K, V> {
     }
 
     unsafe fn drop_and_ascend(this: Self) -> Option<Entry<NodeOwned<K, V, marker::Generic>>> {
-        let parent = (*this.common_ptr.as_ref()).parent;
-        let idx = (*this.common_ptr.as_ref()).parent_idx;
-        let height = this.height;
-        Self::drop(this);
-        parent.map(|ptr| Entry {
-            node: NodeOwned {
-                height,
-                common_ptr: NonNull::from(&ptr.as_ref().common),
-                _marker: PhantomData,
-            },
-            idx: idx.assume_init(),
-        })
+        unsafe {
+            let parent = this.common_ptr.as_ref().parent;
+            let idx = this.common_ptr.as_ref().parent_idx;
+            let height = this.height;
+            Self::drop(this);
+
+            parent.map(|ptr| Entry {
+                node: NodeOwned {
+                    height,
+                    common_ptr: NonNull::from(&ptr.as_ref().common),
+                    _marker: PhantomData,
+                },
+                idx: idx.assume_init(),
+            })
+        }
     }
 }
 
@@ -621,10 +643,10 @@ impl<'a, K: 'a, V: 'a> NodeMut<'a, K, V, marker::Generic> {
 
     /// # Safety
     ///
-    /// We here duplicates a mutable reference which is extremely dangerous. Be sure not to split
+    /// We here duplicate a mutable reference which is extremely dangerous. Be sure not to split
     /// them into different contexts.
     unsafe fn into_siblings(self) -> Result<Twin<(Self, Self)>, Self> {
-        match ptr::read(&self).ascend() {
+        match unsafe { ptr::read(&self) }.ascend() {
             Ok(ent) => match ent.into_sibling() {
                 Ok(Left(sib)) => Ok(Left((sib.descend(), self))),
                 Ok(Right(sib)) => Ok(Right((self, sib.descend()))),
@@ -638,28 +660,34 @@ impl<'a, K: 'a, V: 'a> NodeMut<'a, K, V, marker::Generic> {
         assert!(self.len() + other.len() <= MAX_KEYS);
         assert!(!self.eq(&other));
 
-        match self.into_typed() {
-            TypedResult::Leaf(leaf) => leaf.merge(other.into_leaf_unchecked()).into_generic(),
-            TypedResult::Internal(internal) => internal
-                .merge(other.into_internal_unchecked())
-                .into_generic(),
+        unsafe {
+            match self.into_typed() {
+                TypedResult::Leaf(leaf) => leaf.merge(other.into_leaf_unchecked()).into_generic(),
+                TypedResult::Internal(internal) => internal
+                    .merge(other.into_internal_unchecked())
+                    .into_generic(),
+            }
         }
     }
 
     unsafe fn steal_from_left(&mut self, other: Self) {
-        match self.reborrow_mut().into_typed() {
-            TypedResult::Leaf(mut leaf) => leaf.steal_from_left(other.into_leaf_unchecked()),
-            TypedResult::Internal(mut internal) => {
-                internal.steal_from_left(other.into_internal_unchecked())
+        unsafe {
+            match self.reborrow_mut().into_typed() {
+                TypedResult::Leaf(mut leaf) => leaf.steal_from_left(other.into_leaf_unchecked()),
+                TypedResult::Internal(mut internal) => {
+                    internal.steal_from_left(other.into_internal_unchecked())
+                }
             }
         }
     }
 
     unsafe fn steal_from_right(&mut self, other: Self) {
-        match self.reborrow_mut().into_typed() {
-            TypedResult::Leaf(mut leaf) => leaf.steal_from_right(other.into_leaf_unchecked()),
-            TypedResult::Internal(mut internal) => {
-                internal.steal_from_right(other.into_internal_unchecked())
+        unsafe {
+            match self.reborrow_mut().into_typed() {
+                TypedResult::Leaf(mut leaf) => leaf.steal_from_right(other.into_leaf_unchecked()),
+                TypedResult::Internal(mut internal) => {
+                    internal.steal_from_right(other.into_internal_unchecked())
+                }
             }
         }
     }
@@ -689,6 +717,13 @@ impl Twin<usize> {
             MIN_KEYS..=MAX_KEYS => (MIN_KEYS, Right(idx - MIN_KEYS)),
             _ => unreachable!(),
         }
+    }
+}
+
+fn into_ok_or_err<T>(res: Result<T, T>) -> T {
+    match res {
+        Ok(x) => x,
+        Err(x) => x,
     }
 }
 
@@ -779,16 +814,18 @@ impl<B, K, V, N> Entry<Node<B, K, V, N>> {
     }
 }
 
-impl<'a, K, V, N> Entry<NodeMut<'a, K, V, N>> {
+impl<K, V, N> Entry<NodeMut<'_, K, V, N>> {
     /// # Safety
     ///
     /// Because mutable pointers can roam anywhere around the tree, the returned
     /// pointer can easily be used to make the original pointer dangling, out of
     /// bounds, or invalid under stacked borrow rules.
     pub unsafe fn reborrow_mut(&mut self) -> Entry<NodeMut<'_, K, V, N>> {
-        Entry {
-            node: self.node.reborrow_mut(),
-            idx: self.idx,
+        unsafe {
+            Entry {
+                node: self.node.reborrow_mut(),
+                idx: self.idx,
+            }
         }
     }
 
@@ -896,24 +933,26 @@ impl<B, K, V> Entry<Node<B, K, V, marker::Leaf>> {
 
 impl<K, V> Entry<NodeOwned<K, V, marker::Leaf>> {
     pub unsafe fn drop_next(this: Self, back: bool) -> (Option<Self>, Option<(K, V)>) {
-        let kv = ptr::read(&this).into_kv();
-        let next = if back {
-            let ret = ptr::read(&this).prev().ok();
-            Self::drop_ancestors_back(this);
-            ret
-        } else {
-            let ret = ptr::read(&this).next().ok();
-            Self::drop_ancestors(this);
-            ret
-        };
-        (next, Some(kv))
+        unsafe {
+            let kv = ptr::read(&this).into_kv();
+            let next = if back {
+                let ret = ptr::read(&this).prev().ok();
+                Self::drop_ancestors_back(this);
+                ret
+            } else {
+                let ret = ptr::read(&this).next().ok();
+                Self::drop_ancestors(this);
+                ret
+            };
+            (next, Some(kv))
+        }
     }
 
     unsafe fn drop_ancestors(this: Self) {
         let mut ent = this.into_generic();
         if ent.idx == ent.node.len() - 1 {
             loop {
-                ent = match NodeOwned::drop_and_ascend(ent.node) {
+                ent = match unsafe { NodeOwned::drop_and_ascend(ent.node) } {
                     Some(ent) if ent.idx == ent.node.len() - 1 => ent,
                     _ => break,
                 }
@@ -925,7 +964,7 @@ impl<K, V> Entry<NodeOwned<K, V, marker::Leaf>> {
         let mut ent = this.into_generic();
         if ent.idx == 0 {
             loop {
-                ent = match NodeOwned::drop_and_ascend(ent.node) {
+                ent = match unsafe { NodeOwned::drop_and_ascend(ent.node) } {
                     Some(ent) if ent.idx == 0 => ent,
                     _ => break,
                 }
@@ -934,9 +973,11 @@ impl<K, V> Entry<NodeOwned<K, V, marker::Leaf>> {
     }
 
     unsafe fn into_kv(self) -> (K, V) {
-        let key = (*self.node.as_common_ptr()).keys[self.idx].assume_init_read();
-        let val = (*self.node.as_ptr()).vals[self.idx].assume_init_read();
-        (key, val)
+        unsafe {
+            let key = (*self.node.as_common_ptr()).keys[self.idx].assume_init_read();
+            let val = (*self.node.as_ptr()).vals[self.idx].assume_init_read();
+            (key, val)
+        }
     }
 }
 
@@ -981,7 +1022,7 @@ impl<'a, K, V> Entry<NodeMut<'a, K, V, marker::Leaf>> {
         let self_len = self.idx;
         let other_len = MAX_KEYS - self.idx;
 
-        let key = self.node.keys_mut()[self.idx].assume_init_read();
+        let key = unsafe { self.node.keys_mut()[self.idx].assume_init_read() };
 
         move_to_slice(
             &self.node.keys_mut()[self_len..MAX_KEYS],
@@ -994,7 +1035,7 @@ impl<'a, K, V> Entry<NodeMut<'a, K, V, marker::Leaf>> {
         self.node.common_mut().len = self_len;
         other.common.len = other_len;
 
-        {
+        unsafe {
             let self_ptr = Some(NonNull::new_unchecked(self.node.as_ptr()));
             let other_ptr = Some(NonNull::new_unchecked(other as *mut _));
             let self_mut = self.node.as_mut();
@@ -1013,7 +1054,7 @@ impl<'a, K, V> Entry<NodeMut<'a, K, V, marker::Leaf>> {
         debug_assert!(self.node.len() == MAX_KEYS);
 
         let mut other = LeafNode::new();
-        let key = self.split_data(&mut other);
+        let key = unsafe { self.split_data(&mut other) };
 
         self.update_key();
 
@@ -1029,8 +1070,10 @@ impl<'a, K, V> Entry<NodeMut<'a, K, V, marker::Leaf>> {
         debug_assert!(self.node.len() < MAX_KEYS);
         self.node.common_mut().len += 1;
 
-        slice_insert(self.node.keys_mut(), self.idx, key);
-        slice_insert(self.node.vals_mut(), self.idx, val);
+        unsafe {
+            slice_insert(self.node.keys_mut(), self.idx, key);
+            slice_insert(self.node.vals_mut(), self.idx, val);
+        }
 
         self.update_key();
 
@@ -1078,10 +1121,7 @@ impl<'a, K, V> Entry<NodeMut<'a, K, V, marker::Leaf>> {
 
         loop {
             split = match split.left.ascend() {
-                Ok(ent) => match ent
-                    .into_next(true)
-                    .into_ok_or_err()
-                    .insert(split.right.common_ptr)
+                Ok(ent) => match into_ok_or_err(ent.into_next(true)).insert(split.right.common_ptr)
                 {
                     InsertResult::Fit(ent) => {
                         return (InsertResult::Fit(ent.into_generic()), val_ptr)
@@ -1191,7 +1231,7 @@ impl<'a, K, V> Entry<NodeMut<'a, K, V, marker::Internal>> {
         let self_len = self.idx;
         let other_len = MAX_KEYS - self.idx;
 
-        let key = self.node.keys_mut()[self.idx].assume_init_read();
+        let key = unsafe { self.node.keys_mut()[self.idx].assume_init_read() };
 
         move_to_slice(
             &self.node.keys_mut()[self_len..MAX_KEYS],
@@ -1210,22 +1250,24 @@ impl<'a, K, V> Entry<NodeMut<'a, K, V, marker::Internal>> {
     unsafe fn split(mut self) -> SplitResult<'a, K, V, marker::Internal> {
         debug_assert!(self.node.len() == MAX_KEYS);
 
-        let mut other = InternalNode::new();
-        let key = self.split_data(&mut other);
+        unsafe {
+            let mut other = InternalNode::new();
+            let key = self.split_data(&mut other);
 
-        self.update_key();
+            self.update_key();
 
-        let mut right = NodeOwned::<K, V, marker::Internal>::from_new(
-            other,
-            NonZeroUsize::new_unchecked(self.node.height),
-        );
-        let right_len = right.len();
-        right.borrow_mut().link_children(0..right_len);
+            let mut right = NodeOwned::<K, V, marker::Internal>::from_new(
+                other,
+                NonZeroUsize::new_unchecked(self.node.height),
+            );
+            let right_len = right.len();
+            right.borrow_mut().link_children(0..right_len);
 
-        SplitResult {
-            key,
-            left: self.node,
-            right,
+            SplitResult {
+                key,
+                left: self.node,
+                right,
+            }
         }
     }
 
@@ -1239,13 +1281,15 @@ impl<'a, K, V> Entry<NodeMut<'a, K, V, marker::Internal>> {
         .max_key();
         self.node.common_mut().len += 1;
 
-        slice_insert(
-            self.node.keys_mut(),
-            self.idx,
-            ManuallyDrop::into_inner(key),
-        );
-        slice_insert(self.node.children_mut(), self.idx, child);
-        self.node.link_children(self.idx..self.node.len());
+        unsafe {
+            slice_insert(
+                self.node.keys_mut(),
+                self.idx,
+                ManuallyDrop::into_inner(key),
+            );
+            slice_insert(self.node.children_mut(), self.idx, child);
+            self.node.link_children(self.idx..self.node.len());
+        }
 
         self.update_key();
     }
@@ -1310,29 +1354,31 @@ impl<'a, K: 'a, V: 'a> Entry<NodeMut<'a, K, V, marker::Generic>> {
         assert!(self.node.len() < MIN_KEYS);
         let Entry { node, idx } = self;
         // SAFE: One of the 2 node refs is dropped either after `update_key` or in `merge`.
-        match node.into_siblings() {
-            Ok(Left((other, mut this))) => Ok(if other.len() + this.len() <= MAX_KEYS {
-                other
-                    .merge(this.reborrow_mut())
-                    .into_last(false)
-                    .unwrap_or_else(|_| unreachable!())
-                    .update_key();
-                this.ascend().ok()
-            } else {
-                this.steal_from_left(other);
-                None
-            }),
-            Ok(Right((mut this, mut other))) => Ok(if other.len() + this.len() <= MAX_KEYS {
-                this.merge(other.reborrow_mut())
-                    .into_last(false)
-                    .unwrap_or_else(|_| unreachable!())
-                    .update_key();
-                other.ascend().ok()
-            } else {
-                this.steal_from_right(other);
-                None
-            }),
-            Err(root) => Err(Entry { node: root, idx }),
+        unsafe {
+            match node.into_siblings() {
+                Ok(Left((other, mut this))) => Ok(if other.len() + this.len() <= MAX_KEYS {
+                    other
+                        .merge(this.reborrow_mut())
+                        .into_last(false)
+                        .unwrap_or_else(|_| unreachable!())
+                        .update_key();
+                    this.ascend().ok()
+                } else {
+                    this.steal_from_left(other);
+                    None
+                }),
+                Ok(Right((mut this, mut other))) => Ok(if other.len() + this.len() <= MAX_KEYS {
+                    this.merge(other.reborrow_mut())
+                        .into_last(false)
+                        .unwrap_or_else(|_| unreachable!())
+                        .update_key();
+                    other.ascend().ok()
+                } else {
+                    this.steal_from_right(other);
+                    None
+                }),
+                Err(root) => Err(Entry { node: root, idx }),
+            }
         }
     }
 }
@@ -1344,15 +1390,15 @@ pub unsafe fn insert_root<K, V>(
     self_ptr: *mut super::BpTreeMap<K, V>,
     node: NodeOwned<K, V, marker::Generic>,
 ) {
-    let map = &mut *self_ptr;
+    let map = unsafe { &mut *self_ptr };
 
     let root = map.root.as_mut().unwrap();
-    super::super::mem::take_mut(root, |root| {
+    crate::mem::take_mut(root, |root| {
         NodeOwned::<K, V, marker::Internal>::new(root).into_generic()
     });
 
     let ret = Entry {
-        node: root.borrow_mut().into_internal_unchecked(),
+        node: unsafe { root.borrow_mut().into_internal_unchecked() },
         idx: 1,
     }
     .insert(node.common_ptr);
@@ -1383,7 +1429,7 @@ pub fn remove_with_root<K, V>(
                     NodeOwned::<K, V, marker::Generic>::drop(root);
                 } else {
                     let root = map.root.as_mut().unwrap();
-                    super::super::mem::take_mut(root, |root| {
+                    crate::mem::take_mut(root, |root| {
                         NodeOwned::into_first_child(match root.into_typed() {
                             TypedResult::Leaf(leaf) => return leaf.into_generic(),
                             TypedResult::Internal(internal) if internal.len() > 1 => {
@@ -1442,10 +1488,8 @@ pub mod marker {
     impl BorrowType for Owned {
         const PERMITS_TRAVERSAL: bool = false;
     }
-    impl<'a> BorrowType for Ref<'a> {}
-    impl<'a> BorrowType for Mut<'a> {}
-
-    pub trait NodeType {}
+    impl BorrowType for Ref<'_> {}
+    impl BorrowType for Mut<'_> {}
 
     #[derive(Debug)]
     pub struct Internal {}
@@ -1453,10 +1497,6 @@ pub mod marker {
     pub struct Leaf {}
     #[derive(Debug)]
     pub struct Generic {}
-
-    impl NodeType for Internal {}
-    impl NodeType for Leaf {}
-    impl NodeType for Generic {}
 }
 
 /// Inserts a value into a slice of initialized elements followed by one uninitialized element.
@@ -1467,10 +1507,12 @@ unsafe fn slice_insert<T>(slice: &mut [MaybeUninit<T>], idx: usize, val: T) {
     let len = slice.len();
     debug_assert!(len > idx);
     let slice_ptr = slice.as_mut_ptr();
-    if len > idx + 1 {
-        ptr::copy(slice_ptr.add(idx), slice_ptr.add(idx + 1), len - idx - 1);
+    unsafe {
+        if len > idx + 1 {
+            ptr::copy(slice_ptr.add(idx), slice_ptr.add(idx + 1), len - idx - 1);
+        }
+        (*slice_ptr.add(idx)).write(val);
     }
-    (*slice_ptr.add(idx)).write(val);
 }
 
 /// Removes and returns a value from a slice of all initialized elements, leaving behind one
@@ -1482,9 +1524,11 @@ unsafe fn slice_remove<T>(slice: &mut [MaybeUninit<T>], idx: usize) -> T {
     let len = slice.len();
     debug_assert!(idx < len);
     let slice_ptr = slice.as_mut_ptr();
-    let ret = (*slice_ptr.add(idx)).assume_init_read();
-    ptr::copy(slice_ptr.add(idx + 1), slice_ptr.add(idx), len - idx - 1);
-    ret
+    unsafe {
+        let ret = (*slice_ptr.add(idx)).assume_init_read();
+        ptr::copy(slice_ptr.add(idx + 1), slice_ptr.add(idx), len - idx - 1);
+        ret
+    }
 }
 
 /// Moves all values from a slice of initialized elements to a slice
